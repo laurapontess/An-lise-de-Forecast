@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Forecast SDR — Hotmart</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+:root{--hotmart:#ff4d00;--azul:#003b5c;--azul-medio:#005f8e;--verde:#198754;--amarelo:#ffc107;--vermelho:#dc3545;--cinza:#f8f9fa;}
+body{font-family:'Segoe UI',sans-serif;background:#f0f2f5;color:#212529;}
+.navbar{background:var(--azul)!important;}
+.navbar-brand{font-weight:700;font-size:1.2rem;color:#fff!important;}
+.navbar-brand span{color:var(--hotmart);}
+.card{border:none;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);}
+.card-header{border-radius:12px 12px 0 0!important;font-weight:600;}
+.upload-box{border:2px dashed #ced4da;border-radius:10px;padding:20px;text-align:center;cursor:pointer;transition:.2s;background:#fff;}
+.upload-box:hover,.upload-box.drag-over{border-color:var(--azul-medio);background:#e8f4fd;}
+.upload-box.done{border-color:var(--verde);background:#d1e7dd;}
+.upload-box input{display:none;}
+.kpi-card{background:var(--azul);color:#fff;border-radius:12px;padding:20px;text-align:center;}
+.kpi-card .val{font-size:1.6rem;font-weight:700;}
+.kpi-card .lbl{font-size:.8rem;opacity:.8;margin-top:4px;}
+.kpi-card.verde{background:var(--verde);}
+.kpi-card.amarelo{background:#e6a800;color:#fff;}
+.kpi-card.vermelho{background:var(--vermelho);}
+.nav-tabs .nav-link{color:var(--azul);font-weight:500;}
+.nav-tabs .nav-link.active{color:var(--azul);border-bottom:3px solid var(--hotmart);font-weight:700;}
+table th{background:var(--azul);color:#fff;font-weight:600;font-size:.85rem;white-space:nowrap;}
+table td{font-size:.85rem;vertical-align:middle;}
+.mes0{background:#d1e7dd!important;}
+.mes1{background:#fff3cd!important;}
+.mes2{background:#ffe5b2!important;}
+.mes3{background:#f8d7da!important;}
+.limbo-cell{background:#f8d7da!important;font-weight:700;color:var(--vermelho);}
+.vendendo-cell{background:#d1e7dd!important;}
+.ativar-cell{background:#fff3cd!important;}
+.progress{height:22px;border-radius:10px;}
+.badge-nivel{font-size:.75rem;padding:3px 8px;border-radius:20px;}
+.n1{background:#e9ecef;color:#495057;}
+.n2{background:#d0e8ff;color:#003b5c;}
+.n3{background:#b6d7a8;color:#1a5c00;}
+.n4{background:#ffe599;color:#7a4f00;}
+.n5{background:#f4cccc;color:#7a0000;}
+.n6{background:#d9b8e8;color:#4a006b;}
+.n7{background:#f9cb9c;color:#7a3000;}
+.section-title{color:var(--azul);font-weight:700;font-size:1.1rem;border-left:4px solid var(--hotmart);padding-left:10px;margin:20px 0 12px;}
+#results{display:none;}
+.chart-container{position:relative;height:280px;}
+.alert-limbo{background:#f8d7da;border:1px solid #f5c6cb;border-radius:8px;padding:12px 16px;color:#721c24;}
+
+/* PRINT */
+@media print{
+  .no-print,.navbar,.upload-section,.btn,nav{display:none!important;}
+  #results{display:block!important;}
+  .tab-pane{display:block!important;opacity:1!important;}
+  .card{box-shadow:none!important;break-inside:avoid;}
+  .chart-container{height:200px;}
+  body{background:#fff;}
+  .page-break{page-break-before:always;}
+}
+</style>
+</head>
+<body>
+
+<nav class="navbar navbar-dark px-4 py-3">
+  <span class="navbar-brand">📈 Forecast SDR — <span>Hotmart</span></span>
+  <div class="d-flex gap-2">
+    <button class="btn btn-sm btn-outline-light no-print" onclick="exportPDF()">🖨️ Exportar PDF</button>
+  </div>
+</nav>
+
+<div class="container-fluid px-4 py-4">
+
+  <!-- CONFIG SECTION -->
+  <div class="upload-section">
+    <div class="row g-3 mb-4">
+      <div class="col-12">
+        <div class="card">
+          <div class="card-header" style="background:var(--azul);color:#fff;">Dados do SDR</div>
+          <div class="card-body">
+            <div class="row g-3">
+              <div class="col-md-3">
+                <label class="form-label fw-semibold">Nome do SDR</label>
+                <input type="text" id="sdrNome" class="form-control" placeholder="Ex: Maria Silva"/>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label fw-semibold">Senioridade</label>
+                <select id="sdrSenioridade" class="form-select">
+                  <option>Júnior</option><option>Pleno</option><option>Sênior</option>
+                </select>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label fw-semibold">Meta Net Revenue (R$)</label>
+                <input type="number" id="metaNR" class="form-control" placeholder="50000" min="0"/>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label fw-semibold">Meta SQLs (#)</label>
+                <input type="number" id="metaSQL" class="form-control" placeholder="10" min="0"/>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label fw-semibold">Mês de Referência</label>
+                <input type="text" id="mesRef" class="form-control" placeholder="Maio/2025"/>
+              </div>
+              <div class="col-md-1 d-flex align-items-end">
+                <button class="btn w-100" style="background:var(--hotmart);color:#fff;" onclick="runAll()">▶ Analisar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+      <div class="col-md-4">
+        <div class="card h-100">
+          <div class="card-header" style="background:var(--azul-medio);color:#fff;">1. Carteira Ativa</div>
+          <div class="card-body">
+            <div class="upload-box" id="box-carteira" onclick="document.getElementById('file-carteira').click()"
+                 ondragover="dragOver(event,'box-carteira')" ondragleave="dragLeave('box-carteira')" ondrop="drop(event,'file-carteira','box-carteira')">
+              <input type="file" id="file-carteira" accept=".xlsx,.xls,.csv" onchange="loadFile('carteira',this)"/>
+              <div id="icon-carteira">📂</div>
+              <div id="label-carteira" class="mt-1 text-muted small">Arraste ou clique<br><span class="text-muted" style="font-size:.75rem;">Account Name · Net Revenue · Months from Activation</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card h-100">
+          <div class="card-header" style="background:var(--azul-medio);color:#fff;">2. Clientes para Ativar</div>
+          <div class="card-body">
+            <div class="upload-box" id="box-ativar" onclick="document.getElementById('file-ativar').click()"
+                 ondragover="dragOver(event,'box-ativar')" ondragleave="dragLeave('box-ativar')" ondrop="drop(event,'file-ativar','box-ativar')">
+              <input type="file" id="file-ativar" accept=".xlsx,.xls,.csv" onchange="loadFile('ativar',this)"/>
+              <div id="icon-ativar">📂</div>
+              <div id="label-ativar" class="mt-1 text-muted small">Arraste ou clique<br><span class="text-muted" style="font-size:.75rem;">Account Name · Amount · GMV Faltante</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card h-100">
+          <div class="card-header" style="background:var(--azul-medio);color:#fff;">3. CRM — Oportunidades</div>
+          <div class="card-body">
+            <div class="upload-box" id="box-crm" onclick="document.getElementById('file-crm').click()"
+                 ondragover="dragOver(event,'box-crm')" ondragleave="dragLeave('box-crm')" ondrop="drop(event,'file-crm','box-crm')">
+              <input type="file" id="file-crm" accept=".xlsx,.xls,.csv" onchange="loadFile('crm',this)"/>
+              <div id="icon-crm">📂</div>
+              <div id="label-crm" class="mt-1 text-muted small">Arraste ou clique<br><span class="text-muted" style="font-size:.75rem;">Opportunity Name · Account Name · Stage · Amount</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div id="results">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div>
+        <h5 class="mb-0 fw-bold" style="color:var(--azul);" id="results-title"></h5>
+        <small class="text-muted" id="results-sub"></small>
+      </div>
+    </div>
+
+    <ul class="nav nav-tabs mb-3" id="analysisTabs">
+      <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab1">📊 Forecast do Mês</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab2">🏷️ Segmentação N1–N7</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab3">🔀 Cruzamento Carteira</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab4">🎯 Simulação SQLs</a></li>
+    </ul>
+
+    <div class="tab-content">
+      <div class="tab-pane fade show active" id="tab1"><div id="content-tab1"></div></div>
+      <div class="tab-pane fade" id="tab2"><div id="content-tab2"></div></div>
+      <div class="tab-pane fade" id="tab3"><div id="content-tab3"></div></div>
+      <div class="tab-pane fade" id="tab4"><div id="content-tab4"></div></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ─── DADOS ────────────────────────────────────────────────────────────────────
+const DATA = { carteira: null, ativar: null, crm: null };
+const charts = {};
+
+// ─── CONSTANTES ───────────────────────────────────────────────────────────────
+const NIVEIS_DEF = [
+  { key:'N1', min:0,        max:99999.99 },
+  { key:'N2', min:100000,   max:599999.99 },
+  { key:'N3', min:600000,   max:999999.99 },
+  { key:'N4', min:1000000,  max:1999999.99 },
+  { key:'N5', min:2000000,  max:4999999.99 },
+  { key:'N6', min:5000000,  max:9999999.99 },
+  { key:'N7', min:10000000, max:Infinity },
+];
+const NIVEL_MID = { N1:50000, N2:350000, N3:800000, N4:1500000, N5:3500000, N6:7500000, N7:15000000 };
+const ACTIVATION_GMV = 10000;
+const PROB_MAP = [[0,0.95],[2000,0.70],[5000,0.45],[10000,0.20],[Infinity,0.05]];
+
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
+function fmtBRL(v){ if(v==null||isNaN(v)) return '—'; return 'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtPct(v){ if(v==null||isNaN(v)) return '—'; return (v*100).toFixed(1)+'%'; }
+function fmtInt(v){ return Number(v).toLocaleString('pt-BR'); }
+
+function classificarNivel(amount){
+  if(amount==null||isNaN(amount)) return 'N1';
+  for(let i=NIVEIS_DEF.length-1;i>=0;i--){
+    const n=NIVEIS_DEF[i];
+    if(amount>=n.min&&amount<=n.max) return n.key;
+  }
+  return 'N1';
+}
+
+function calcProbAtivacao(gmvFaltante){
+  if(gmvFaltante==null||isNaN(gmvFaltante)) return 0.05;
+  for(const [thresh,prob] of PROB_MAP){ if(gmvFaltante<=thresh) return prob; }
+  return 0.05;
+}
+
+function normalizeStage(s){ return String(s||'').trim().toLowerCase(); }
+function isWon(s){ return ['closed won','won','ganho'].includes(normalizeStage(s)); }
+function isLost(s){ return ['closed lost','lost','perdido'].includes(normalizeStage(s)); }
+function isPipeline(s){ return !isWon(s)&&!isLost(s); }
+
+function normalizeName(s){ return String(s||'').trim().toLowerCase(); }
+
+function findCol(row, candidates){
+  const keys = Object.keys(row);
+  for(const c of candidates){
+    const found = keys.find(k=>k.trim().toLowerCase()===c.toLowerCase());
+    if(found) return found;
+  }
+  return null;
+}
+
+function getVal(row, candidates, def=null){
+  const col = findCol(row, candidates);
+  return col!=null ? row[col] : def;
+}
+
+function toNum(v, def=0){ const n=parseFloat(String(v).replace(/[R$\s.]/g,'').replace(',','.')); return isNaN(n)?def:n; }
+
+function niveClass(n){ return n.toLowerCase(); }
+
+// ─── UPLOAD ───────────────────────────────────────────────────────────────────
+function dragOver(e, boxId){ e.preventDefault(); document.getElementById(boxId).classList.add('drag-over'); }
+function dragLeave(boxId){ document.getElementById(boxId).classList.remove('drag-over'); }
+function drop(e, inputId, boxId){
+  e.preventDefault();
+  dragLeave(boxId);
+  const files = e.dataTransfer.files;
+  if(files.length){
+    const input = document.getElementById(inputId);
+    const dt = new DataTransfer();
+    dt.items.add(files[0]);
+    input.files = dt.files;
+    input.dispatchEvent(new Event('change'));
+  }
+}
+
+function loadFile(key, input){
+  const file = input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try{
+      const wb = XLSX.read(e.target.result, {type:'binary', cellDates:true});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+      DATA[key] = rows;
+      document.getElementById('box-'+key).classList.add('done');
+      document.getElementById('icon-'+key).textContent = '✅';
+      document.getElementById('label-'+key).innerHTML = `<strong>${file.name}</strong><br><span class="text-success small">${rows.length} linhas carregadas</span>`;
+    }catch(err){
+      alert('Erro ao ler arquivo: '+err.message);
+    }
+  };
+  reader.readAsBinaryString(file);
+}
+
+// ─── PARSE ────────────────────────────────────────────────────────────────────
+function parseCarteira(rows){
+  return rows.map(r=>({
+    account: String(getVal(r,['Account Name','account name','nome','Account'],'')).trim(),
+    netRevenue: toNum(getVal(r,['Net Revenue','net revenue','NR','net_revenue'],0)),
+    gmvRV: toNum(getVal(r,['GMV RV','GMV_RV','gmv rv','GMV'],0)),
+    takeRate: toNum(getVal(r,['Take Rate','take rate','take_rate','TakeRate'],0)),
+    months: parseInt(getVal(r,['Months from Activation','months from activation','Months','months','Mês','mes'],0))||0,
+  })).filter(r=>r.account);
+}
+
+function parseAtivar(rows){
+  return rows.map(r=>({
+    account: String(getVal(r,['Account Name','account name','nome','Account'],'')).trim(),
+    amount: toNum(getVal(r,['Amount','amount','Valor','GMV'],0)),
+    gmvFaltante: getVal(r,['GMV Faltante','gmv faltante','GMV_Faltante','Faltante','faltante'],''),
+  }))
+  .filter(r=>r.account)
+  .filter(r=>{ // ghosting: ignorar linhas com GMV Faltante vazio
+    const v = r.gmvFaltante;
+    return v!==''&&v!=null&&!isNaN(parseFloat(String(v)));
+  })
+  .map(r=>({...r, gmvFaltante: toNum(r.gmvFaltante)}));
+}
+
+function parseCRM(rows){
+  return rows.map(r=>({
+    oppName: String(getVal(r,['Opportunity Name','opportunity name','Oportunidade','Nome Oportunidade'],'')).trim(),
+    account: String(getVal(r,['Account Name','account name','Conta','Account'],'')).trim(),
+    stage: String(getVal(r,['Stage','stage','Estágio','Status','Fase'],'')).trim(),
+    amount: toNum(getVal(r,['Amount','amount','Valor'],0)),
+    closeDate: getVal(r,['Close Date','close date','Data Fechamento','Data'],''),
+  })).filter(r=>r.account||r.oppName);
+}
+
+// ─── ANÁLISE 1 ────────────────────────────────────────────────────────────────
+function runAnalise1(carteira, ativar, crm, metaNR, metaSQL){
+  const ativa = carteira.filter(c=>c.months<3);
+  const saidas = carteira.filter(c=>c.months>=3);
+  const nrProjetado = ativa.reduce((s,c)=>s+c.netRevenue,0);
+
+  // take rate médio para estimar NR no pipeline
+  const trMedia = carteira.length>0
+    ? carteira.reduce((s,c)=>s+c.takeRate,0)/carteira.length/100
+    : 0.05;
+  const trEfetivo = trMedia>0 ? trMedia : 0.05;
+
+  const pipeline = ativar.map(c=>{
+    const prob = calcProbAtivacao(c.gmvFaltante);
+    const nrEsperado = c.amount * trEfetivo * prob;
+    return {...c, prob, nrEsperado};
+  });
+  const nrPipeline = pipeline.reduce((s,c)=>s+c.nrEsperado,0);
+
+  const sqlsQuentes = crm.filter(c=>isPipeline(c.stage)).length;
+
+  const atingNR = metaNR>0 ? Math.min(nrProjetado/metaNR,1) : 0;
+  const atingSQL = metaSQL>0 ? Math.min(sqlsQuentes/metaSQL,1) : 0;
+  const atingPond = atingNR*0.6 + atingSQL*0.4;
+
+  // Resumo por mês
+  const porMes = {};
+  ativa.forEach(c=>{
+    if(!porMes[c.months]) porMes[c.months]={qtd:0,nr:0};
+    porMes[c.months].qtd++;
+    porMes[c.months].nr+=c.netRevenue;
+  });
+
+  return { ativa, saidas, nrProjetado, nrPipeline, sqlsQuentes,
+           atingNR, atingSQL, atingPond, porMes,
+           pipeline: pipeline.sort((a,b)=>b.prob-a.prob) };
+}
+
+// ─── ANÁLISE 2 ────────────────────────────────────────────────────────────────
+function runAnalise2(crm){
+  const withNivel = crm.map(c=>({...c, nivel:classificarNivel(c.amount)}));
+  const resumo = NIVEIS_DEF.map(n=>{
+    const sub = withNivel.filter(c=>c.nivel===n.key);
+    const won = sub.filter(c=>isWon(c.stage));
+    const lost = sub.filter(c=>isLost(c.stage));
+    const pipe = sub.filter(c=>isPipeline(c.stage));
+    return {
+      nivel:n.key, total:sub.length,
+      won:won.length, pipe:pipe.length, lost:lost.length,
+      amountTotal:sub.reduce((s,c)=>s+c.amount,0),
+      amountWon:won.reduce((s,c)=>s+c.amount,0),
+      detalhe:sub.sort((a,b)=>b.amount-a.amount)
+    };
+  });
+  return { resumo, withNivel };
+}
+
+// ─── ANÁLISE 3 ────────────────────────────────────────────────────────────────
+function runAnalise3(crm, carteira, ativar){
+  const setCarteira = new Set(carteira.map(c=>normalizeName(c.account)));
+  const setAtivar   = new Set(ativar.map(c=>normalizeName(c.account)));
+
+  const won = crm.filter(c=>isWon(c.stage)).map(c=>{
+    const acct = normalizeName(c.account);
+    let status;
+    if(setCarteira.has(acct)) status='Vendendo na carteira';
+    else if(setAtivar.has(acct)) status='Para ativar';
+    else status='Limbo';
+    return {...c, nivel:classificarNivel(c.amount), status};
+  });
+
+  // Matriz nível × status
+  const matrix = {};
+  NIVEIS_DEF.forEach(n=>{ matrix[n.key]={'Vendendo na carteira':{qtd:0,amt:0},'Para ativar':{qtd:0,amt:0},'Limbo':{qtd:0,amt:0}}; });
+  won.forEach(c=>{
+    matrix[c.nivel][c.status].qtd++;
+    matrix[c.nivel][c.status].amt+=c.amount;
+  });
+
+  const limbo = won.filter(c=>c.status==='Limbo');
+  const totalLimboAmt = limbo.reduce((s,c)=>s+c.amount,0);
+
+  return { won, matrix, limbo, totalLimboAmt };
+}
+
+// ─── ANÁLISE 4 ────────────────────────────────────────────────────────────────
+function runAnalise4(crm, metaNR){
+  const withNivel = crm.map(c=>({...c,nivel:classificarNivel(c.amount)}));
+
+  const taxas = NIVEIS_DEF.map(n=>{
+    const sub = withNivel.filter(c=>c.nivel===n.key);
+    const won = sub.filter(c=>isWon(c.stage));
+    const taxaWon = sub.length>0 ? won.length/sub.length : 0;
+    const tickets = won.map(c=>c.amount);
+    const ticket = tickets.length>0 ? tickets.reduce((a,b)=>a+b,0)/tickets.length : NIVEL_MID[n.key];
+    return { nivel:n.key, total:sub.length, won:won.length, taxaWon, ticket };
+  });
+
+  // Composição ideal (17 slots baseado em proporção histórica)
+  const totalWon = taxas.reduce((s,t)=>s+t.won,0);
+  let composicao = NIVEIS_DEF.map(n=>{
+    const t = taxas.find(x=>x.nivel===n.key);
+    const prop = totalWon>0 ? t.won/totalWon : 0;
+    const slots = Math.max(0,Math.round(prop*17));
+    return { nivel:n.key, slots, ticket:t.ticket, taxaWon:t.taxaWon };
+  });
+
+  // Ajustar para soma = 17
+  const somaSlots = composicao.reduce((s,c)=>s+c.slots,0);
+  if(somaSlots!==17&&somaSlots>0){
+    const diff = 17-somaSlots;
+    const idx = composicao.reduce((mi,c,i,a)=>c.slots>a[mi].slots?i:mi,0);
+    composicao[idx].slots+=diff;
+  }
+
+  // SQLs necessários
+  const sqlsNecessarios = composicao.map(c=>({
+    nivel:c.nivel,
+    slots:c.slots,
+    taxaWon:c.taxaWon,
+    sqls: c.taxaWon>0&&c.slots>0 ? Math.ceil(c.slots/c.taxaWon) : 0,
+  }));
+
+  return { taxas, composicao, sqlsNecessarios };
+}
+
+// ─── RENDER HELPERS ───────────────────────────────────────────────────────────
+function renderTable(cols, rows, rowClassFn=null, colClassFn=null){
+  let html='<div class="table-responsive"><table class="table table-bordered table-sm mb-0"><thead><tr>';
+  cols.forEach(c=>{ html+=`<th>${c}</th>`; });
+  html+='</tr></thead><tbody>';
+  rows.forEach((r,ri)=>{
+    const rc=rowClassFn?rowClassFn(r,ri):'';
+    html+=`<tr class="${rc}">`;
+    r.forEach((cell,ci)=>{
+      const cc=colClassFn?colClassFn(r,ci,cols[ci]):'';
+      html+=`<td class="${cc}">${cell??'—'}</td>`;
+    });
+    html+='</tr>';
+  });
+  html+='</tbody></table></div>';
+  return html;
+}
+
+function destroyChart(id){ if(charts[id]){ charts[id].destroy(); delete charts[id]; } }
+
+// ─── RENDER ANÁLISE 1 ─────────────────────────────────────────────────────────
+function renderTab1(r1, metaNR, metaSQL){
+  const atingColor = r1.atingPond>=0.8?'verde':r1.atingPond>=0.5?'amarelo':'vermelho';
+  let html=`<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3"><div class="kpi-card"><div class="val">${fmtBRL(r1.nrProjetado)}</div><div class="lbl">NR Projetado (Carteira)</div></div></div>
+    <div class="col-6 col-md-3"><div class="kpi-card"><div class="val">${fmtBRL(r1.nrPipeline)}</div><div class="lbl">Pipeline de Ativação</div></div></div>
+    <div class="col-6 col-md-3"><div class="kpi-card"><div class="val">${r1.sqlsQuentes}</div><div class="lbl">SQLs Quentes no CRM</div></div></div>
+    <div class="col-6 col-md-3"><div class="kpi-card ${atingColor}"><div class="val">${fmtPct(r1.atingPond)}</div><div class="lbl">Atingimento Ponderado</div></div></div>
+  </div>`;
+
+  // Barra de progresso
+  const pct=Math.min(r1.atingPond*100,100);
+  const barColor=r1.atingPond>=0.8?'success':r1.atingPond>=0.5?'warning':'danger';
+  html+=`<div class="mb-4">
+    <div class="d-flex justify-content-between mb-1"><small>NR ${fmtPct(r1.atingNR)} (peso 60%)</small><small>SQL ${fmtPct(r1.atingSQL)} (peso 40%)</small></div>
+    <div class="progress"><div class="progress-bar bg-${barColor}" style="width:${pct}%">${pct.toFixed(1)}%</div></div>
+  </div>`;
+
+  // Carteira por mês
+  html+=`<p class="section-title">Carteira Ativa por Mês de Transição</p>`;
+  const mesRows=Object.entries(r1.porMes).sort((a,b)=>a[0]-b[0]).map(([m,v])=>[
+    `Mês ${m}`, fmtInt(v.qtd), fmtBRL(v.nr)
+  ]);
+  html+=renderTable(['Mês na Carteira','Qtd Clientes','NR Total'],mesRows,(row,ri)=>{
+    const m=parseInt(row[0].replace('Mês ',''));
+    return ['mes0','mes1','mes2','mes3'][m]||'';
+  });
+
+  // Saídas
+  if(r1.saidas.length>0){
+    html+=`<p class="section-title mt-3">⚠️ Saídas Obrigatórias (Mês 3)</p>
+    <div class="alert alert-danger py-2 px-3">${r1.saidas.length} cliente(s) saindo obrigatoriamente neste mês</div>`;
+    html+=renderTable(['Conta','NR Atual','Mês'],r1.saidas.map(c=>[c.account,fmtBRL(c.netRevenue),c.months]),()=>'mes3');
+  } else {
+    html+=`<div class="alert alert-success mt-3 py-2">Nenhuma saída obrigatória neste mês.</div>`;
+  }
+
+  // Pipeline ativação
+  if(r1.pipeline.length>0){
+    html+=`<p class="section-title mt-3">Pipeline de Ativação</p>`;
+    html+=renderTable(
+      ['Conta','Amount','GMV Faltante','Probabilidade','NR Esperado'],
+      r1.pipeline.map(c=>[c.account,fmtBRL(c.amount),fmtBRL(c.gmvFaltante),fmtPct(c.prob),fmtBRL(c.nrEsperado)]),
+      (row)=> parseFloat(row[3])>=70?'table-success': parseFloat(row[3])>=45?'table-warning':'table-danger'
+    );
+    // Gráfico
+    html+=`<div class="chart-container mt-3"><canvas id="chart-pipe"></canvas></div>`;
+  }
+
+  document.getElementById('content-tab1').innerHTML=html;
+
+  if(r1.pipeline.length>0){
+    destroyChart('chart-pipe');
+    charts['chart-pipe']=new Chart(document.getElementById('chart-pipe'),{
+      type:'bar',
+      data:{
+        labels:r1.pipeline.slice(0,15).map(c=>c.account.substring(0,20)),
+        datasets:[{label:'Probabilidade de Ativação',
+          data:r1.pipeline.slice(0,15).map(c=>+(c.prob*100).toFixed(1)),
+          backgroundColor:r1.pipeline.slice(0,15).map(c=>c.prob>=0.7?'#198754':c.prob>=0.45?'#ffc107':'#dc3545'),
+        }]
+      },
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},title:{display:true,text:'Probabilidade de Ativação por Cliente (%)'}},
+        scales:{y:{min:0,max:100,ticks:{callback:v=>v+'%'}}}}
+    });
+  }
+}
+
+// ─── RENDER ANÁLISE 2 ─────────────────────────────────────────────────────────
+function renderTab2(r2){
+  let html=`<p class="section-title">Resumo por Nível</p>`;
+  html+=renderTable(
+    ['Nível','Total','Won','Pipeline','Lost','Amount Total','Amount Won'],
+    r2.resumo.map(n=>[
+      `<span class="badge-nivel ${niveClass(n.nivel)}">${n.nivel}</span>`,
+      n.total, n.won, n.pipe, n.lost,
+      fmtBRL(n.amountTotal), fmtBRL(n.amountWon)
+    ])
+  );
+
+  // Gráfico
+  html+=`<div class="chart-container mt-3 mb-4"><canvas id="chart-seg"></canvas></div>`;
+
+  // Detalhes por nível
+  html+=`<p class="section-title">Oportunidades por Nível</p>`;
+  r2.resumo.filter(n=>n.total>0).forEach(n=>{
+    html+=`<div class="mb-3">
+      <button class="btn btn-sm w-100 text-start mb-1" style="background:#f0f4f8;border:1px solid #dee2e6;"
+        data-bs-toggle="collapse" data-bs-target="#det-${n.nivel}">
+        <span class="badge-nivel ${niveClass(n.nivel)}">${n.nivel}</span>
+        &nbsp; ${n.total} oportunidade(s) · Won: ${n.won} · Pipeline: ${n.pipe} · Lost: ${n.lost}
+      </button>
+      <div class="collapse" id="det-${n.nivel}">`;
+    html+=renderTable(
+      ['Oportunidade','Conta','Stage','Amount'],
+      n.detalhe.map(c=>[c.oppName||'—',c.account,c.stage,fmtBRL(c.amount)]),
+      (row)=>isWon(row[2])?'table-success':isLost(row[2])?'table-danger':''
+    );
+    html+=`</div></div>`;
+  });
+
+  document.getElementById('content-tab2').innerHTML=html;
+
+  destroyChart('chart-seg');
+  charts['chart-seg']=new Chart(document.getElementById('chart-seg'),{
+    type:'bar',
+    data:{
+      labels:r2.resumo.map(n=>n.nivel),
+      datasets:[
+        {label:'Won',data:r2.resumo.map(n=>n.won),backgroundColor:'#198754'},
+        {label:'Pipeline',data:r2.resumo.map(n=>n.pipe),backgroundColor:'#0d6efd'},
+        {label:'Lost',data:r2.resumo.map(n=>n.lost),backgroundColor:'#dc3545'},
+      ]
+    },
+    options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:'Distribuição por Nível'}},
+      scales:{x:{stacked:true},y:{stacked:true}}}
+  });
+}
+
+// ─── RENDER ANÁLISE 3 ─────────────────────────────────────────────────────────
+function renderTab3(r3){
+  if(r3.won.length===0){
+    document.getElementById('content-tab3').innerHTML='<div class="alert alert-info">Nenhum deal Closed Won encontrado.</div>';
+    return;
+  }
+
+  const statuses=['Vendendo na carteira','Para ativar','Limbo'];
+  let html=`<p class="section-title">Matriz Nível × Status (Quantidade)</p>`;
+
+  // Tabela matriz
+  html+='<div class="table-responsive"><table class="table table-bordered table-sm mb-0"><thead><tr><th>Nível</th>';
+  statuses.forEach(s=>html+=`<th>${s}</th>`);
+  html+='<th>Total Won</th></tr></thead><tbody>';
+  NIVEIS_DEF.forEach(n=>{
+    const row=r3.matrix[n.key];
+    const total=statuses.reduce((s,st)=>s+row[st].qtd,0);
+    if(total===0) return;
+    html+=`<tr><td><span class="badge-nivel ${niveClass(n.key)}">${n.key}</span></td>`;
+    statuses.forEach(st=>{
+      const cls=st==='Limbo'&&row[st].qtd>0?'limbo-cell':st==='Vendendo na carteira'&&row[st].qtd>0?'vendendo-cell':st==='Para ativar'&&row[st].qtd>0?'ativar-cell':'';
+      html+=`<td class="${cls}">${row[st].qtd>0?row[st].qtd:'—'}</td>`;
+    });
+    html+=`<td><strong>${total}</strong></td></tr>`;
+  });
+  html+='</tbody></table></div>';
+
+  // Totais por status
+  const totPorStatus={};
+  statuses.forEach(st=>{totPorStatus[st]=r3.won.filter(c=>c.status===st).length;});
+
+  html+=`<div class="row g-3 my-3">`;
+  const cls={'Vendendo na carteira':'success','Para ativar':'warning','Limbo':'danger'};
+  statuses.forEach(st=>{
+    html+=`<div class="col-md-4"><div class="alert alert-${cls[st]} text-center py-2 mb-0">
+      <strong>${totPorStatus[st]}</strong> conta(s)<br><small>${st}</small></div></div>`;
+  });
+  html+=`</div>`;
+
+  // Limbo destaque
+  if(r3.limbo.length>0){
+    html+=`<div class="alert-limbo mb-3">
+      ⚠️ <strong>${r3.limbo.length} conta(s) em Limbo</strong> — Amount total parado: <strong>${fmtBRL(r3.totalLimboAmt)}</strong>
+    </div>`;
+    html+=`<p class="section-title">Contas em Limbo — Ação Recomendada</p>`;
+    html+=renderTable(
+      ['Oportunidade','Conta','Nível','Amount'],
+      r3.limbo.map(c=>[c.oppName||'—',c.account,`<span class="badge-nivel ${niveClass(c.nivel)}">${c.nivel}</span>`,fmtBRL(c.amount)]),
+      ()=>'table-danger'
+    );
+  }
+
+  // Gráfico pizza
+  html+=`<div class="chart-container mt-3"><canvas id="chart-status"></canvas></div>`;
+
+  document.getElementById('content-tab3').innerHTML=html;
+
+  destroyChart('chart-status');
+  const labels=statuses.filter(s=>totPorStatus[s]>0);
+  const values=labels.map(s=>totPorStatus[s]);
+  charts['chart-status']=new Chart(document.getElementById('chart-status'),{
+    type:'doughnut',
+    data:{labels,datasets:[{data:values,backgroundColor:['#198754','#ffc107','#dc3545']}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{title:{display:true,text:'Distribuição de Clientes Won por Status'}}}
+  });
+}
+
+// ─── RENDER ANÁLISE 4 ─────────────────────────────────────────────────────────
+function renderTab4(r4){
+  let html=`<p class="section-title">Taxas de Conversão Históricas por Nível</p>`;
+  html+=renderTable(
+    ['Nível','Total Opps','Won','Taxa SQL→Won','Ticket Médio Won'],
+    r4.taxas.filter(t=>t.total>0).map(t=>[
+      `<span class="badge-nivel ${niveClass(t.nivel)}">${t.nivel}</span>`,
+      t.total, t.won, fmtPct(t.taxaWon), fmtBRL(t.ticket)
+    ])
+  );
+
+  html+=`<div class="chart-container mt-3 mb-4"><canvas id="chart-taxa"></canvas></div>`;
+
+  html+=`<p class="section-title">Composição Ideal da Carteira (17 clientes)</p>`;
+  html+=renderTable(
+    ['Nível','Slots Ideais','Ticket Médio (R$)'],
+    r4.composicao.filter(c=>c.slots>0).map(c=>[
+      `<span class="badge-nivel ${niveClass(c.nivel)}">${c.nivel}</span>`,
+      c.slots, fmtBRL(c.ticket)
+    ])
+  );
+
+  html+=`<p class="section-title mt-3">SQLs Necessários por Mês por Nível</p>`;
+  html+=renderTable(
+    ['Nível','Slots na Carteira','Taxa SQL→Won','SQLs/mês Necessários'],
+    r4.sqlsNecessarios.filter(c=>c.slots>0).map(c=>[
+      `<span class="badge-nivel ${niveClass(c.nivel)}">${c.nivel}</span>`,
+      c.slots, fmtPct(c.taxaWon), c.sqls>0?c.sqls:'N/D'
+    ])
+  );
+
+  const n3=r4.sqlsNecessarios.find(c=>c.nivel==='N3');
+  const n4=r4.sqlsNecessarios.find(c=>c.nivel==='N4');
+  html+=`<div class="row g-3 mt-2">
+    <div class="col-md-6"><div class="kpi-card"><div class="val">${n3&&n3.sqls>0?n3.sqls:'N/D'}</div><div class="lbl">SQLs N3 necessários/mês</div></div></div>
+    <div class="col-md-6"><div class="kpi-card"><div class="val">${n4&&n4.sqls>0?n4.sqls:'N/D'}</div><div class="lbl">SQLs N4 necessários/mês</div></div></div>
+  </div>`;
+
+  document.getElementById('content-tab4').innerHTML=html;
+
+  destroyChart('chart-taxa');
+  const taxasFiltradas=r4.taxas.filter(t=>t.total>0);
+  charts['chart-taxa']=new Chart(document.getElementById('chart-taxa'),{
+    type:'bar',
+    data:{
+      labels:taxasFiltradas.map(t=>t.nivel),
+      datasets:[{label:'Taxa SQL→Won (%)',
+        data:taxasFiltradas.map(t=>+(t.taxaWon*100).toFixed(1)),
+        backgroundColor:taxasFiltradas.map(t=>t.taxaWon>=0.5?'#198754':t.taxaWon>=0.25?'#ffc107':'#dc3545')
+      }]
+    },
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},title:{display:true,text:'Taxa de Conversão SQL→Won por Nível (%)'}},
+      scales:{y:{ticks:{callback:v=>v+'%'}}}}
+  });
+}
+
+// ─── MAIN ─────────────────────────────────────────────────────────────────────
+function runAll(){
+  if(!DATA.carteira||!DATA.ativar||!DATA.crm){
+    alert('Por favor, carregue os 3 arquivos antes de analisar.');
+    return;
+  }
+
+  const metaNR=parseFloat(document.getElementById('metaNR').value)||0;
+  const metaSQL=parseInt(document.getElementById('metaSQL').value)||0;
+  const nome=document.getElementById('sdrNome').value||'SDR';
+  const senior=document.getElementById('sdrSenioridade').value;
+  const mes=document.getElementById('mesRef').value||'—';
+
+  try{
+    const carteira=parseCarteira(DATA.carteira);
+    const ativar=parseAtivar(DATA.ativar);
+    const crm=parseCRM(DATA.crm);
+
+    const r1=runAnalise1(carteira,ativar,crm,metaNR,metaSQL);
+    const r2=runAnalise2(crm);
+    const r3=runAnalise3(crm,carteira,ativar);
+    const r4=runAnalise4(crm,metaNR);
+
+    document.getElementById('results-title').textContent=`${nome} — ${senior} — ${mes}`;
+    document.getElementById('results-sub').textContent=`Meta NR: ${fmtBRL(metaNR)} · Meta SQLs: ${metaSQL}`;
+    document.getElementById('results').style.display='block';
+
+    renderTab1(r1,metaNR,metaSQL);
+    renderTab2(r2);
+    renderTab3(r3);
+    renderTab4(r4);
+
+    document.getElementById('results').scrollIntoView({behavior:'smooth'});
+  }catch(err){
+    alert('Erro ao processar: '+err.message+'\n\nVerifique se as colunas das planilhas estão corretas.');
+    console.error(err);
+  }
+}
+
+function exportPDF(){
+  if(document.getElementById('results').style.display==='none'){
+    alert('Execute a análise primeiro.'); return;
+  }
+  // Mostrar todas as abas para impressão
+  document.querySelectorAll('.tab-pane').forEach(p=>p.classList.add('show','active'));
+  window.print();
+  // Restaurar
+  setTimeout(()=>{
+    document.querySelectorAll('.tab-pane').forEach((p,i)=>{
+      p.classList.remove('show','active');
+      if(i===0) p.classList.add('show','active');
+    });
+  },1000);
+}
+</script>
+</body>
+</html>
