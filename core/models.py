@@ -1,19 +1,11 @@
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
 
 @dataclass
 class SDRContext:
     nome: str
-    senioridade: str
-    meta_net_revenue: float
-    meta_sqls: int
-    mes_referencia: str
-
-
-@dataclass
-class AnalysisResults:
-    analise1: dict = field(default_factory=dict)
-    analise2: dict = field(default_factory=dict)
-    analise3: dict = field(default_factory=dict)
-    analise4: dict = field(default_factory=dict)
+    senioridade: str          # "Júnior" ou "Pleno"
+    meta_net_revenue: float   # Meta NR em R$
+    meta_sqls: int            # Meta de SQLs (Closed Won)
+    mes_referencia: str       # Ex: "Maio/2025"

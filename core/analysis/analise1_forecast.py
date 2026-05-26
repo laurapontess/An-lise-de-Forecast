@@ -1,57 +1,79 @@
+"""
+Análise 1 — Forecast do Mês & Gap de Meta
+
+Regras de negócio:
+- Lifecycle: cliente gera receita nos Meses 0, 1, 2 e 3 (4 meses inclusive).
+- NR é extraído diretamente da coluna Net Revenue da Base 1 (já usa Take Rate individual).
+- SQLs = quantidade de oportunidades Closed Won na Base 3.
+- Meta ponderada: 60% NR + 40% SQL.
+"""
 import pandas as pd
-from core.analysis.helpers import calcular_prob_ativacao, is_pipeline, is_won
-from utils.constants import META_WEIGHT_NR, META_WEIGHT_SQL, ACTIVATION_THRESHOLD
+from utils.constants import META_WEIGHT_NR, META_WEIGHT_SQL, MAX_LIFECYCLE_MONTH
 
 
-def run(df_carteira: pd.DataFrame, df_ativar: pd.DataFrame, df_crm: pd.DataFrame,
-        meta_nr: float, meta_sqls: int) -> dict:
+def run(
+    df_carteira: pd.DataFrame,
+    df_ativar: pd.DataFrame,
+    df_crm_won: pd.DataFrame,
+    meta_nr: float,
+    meta_sqls: int,
+) -> dict:
 
-    # Carteira ativa: excluir mês 3 (saem obrigatoriamente)
-    carteira_ativa = df_carteira[df_carteira["Months from Activation"] < 3].copy()
-    saidas = df_carteira[df_carteira["Months from Activation"] >= 3].copy()
+    # ── Carteira Ativa (lifecycle 0‒3) ─────────────────────────────────────
+    lifecycle_mask = df_carteira["Months from Activation"].between(0, MAX_LIFECYCLE_MONTH)
+    carteira_ativa  = df_carteira[lifecycle_mask].copy()
+    carteira_saindo = df_carteira[~lifecycle_mask].copy()   # mês > 3, fora do ciclo
 
+    # NR já calculado com Take Rate individual por cliente
     nr_projetado = carteira_ativa["Net Revenue"].sum()
 
     # Resumo por mês de transição
     resumo_por_mes = (
-        carteira_ativa.groupby("Months from Activation")
-        .agg(qtd_clientes=("Account Name", "count"), nr_total=("Net Revenue", "sum"))
+        carteira_ativa
+        .groupby("Months from Activation", sort=True)
+        .agg(qtd=("Account Name", "count"), nr=("Net Revenue", "sum"))
         .reset_index()
-        .rename(columns={"Months from Activation": "Mês na Carteira"})
+        .rename(columns={
+            "Months from Activation": "Mês na Carteira",
+            "qtd": "Qtd Clientes",
+            "nr": "NR Total (R$)",
+        })
     )
 
-    # Pipeline de ativação com probabilidade
-    df_ativar = df_ativar.copy()
-    df_ativar["Probabilidade"] = df_ativar["GMV Faltante"].apply(calcular_prob_ativacao)
-    df_ativar["NR Esperado"] = df_ativar.apply(
-        lambda r: r.get("Net Revenue", r["Amount"] * 0.05) * r["Probabilidade"]
-        if "Net Revenue" in df_ativar.columns
-        else r["Amount"] * 0.05 * r["Probabilidade"],
-        axis=1,
-    )
-    nr_pipeline = df_ativar["NR Esperado"].sum()
+    # ── SQLs Realizados ─────────────────────────────────────────────────────
+    sqls_realizados = len(df_crm_won)  # cada linha = 1 Closed Won = 1 SQL
 
-    # SQLs quentes: oportunidades em pipeline ativo no CRM
-    sqls_quentes = int(df_crm["Stage"].apply(is_pipeline).sum()) if not df_crm.empty else 0
+    # ── Gap de Meta ─────────────────────────────────────────────────────────
+    gap_nr   = max(meta_nr  - nr_projetado,  0.0)
+    gap_sql  = max(meta_sqls - sqls_realizados, 0)
 
-    # Atingimento ponderado
-    ating_nr = min(nr_projetado / meta_nr, 1.0) if meta_nr > 0 else 0.0
-    ating_sql = min(sqls_quentes / meta_sqls, 1.0) if meta_sqls > 0 else 0.0
+    # ── Atingimento Ponderado ───────────────────────────────────────────────
+    ating_nr  = min(nr_projetado / meta_nr,    1.0) if meta_nr  > 0 else 0.0
+    ating_sql = min(sqls_realizados / meta_sqls, 1.0) if meta_sqls > 0 else 0.0
     ating_ponderado = ating_nr * META_WEIGHT_NR + ating_sql * META_WEIGHT_SQL
 
-    # Forecast total (projetado + melhor caso do pipeline)
-    nr_forecast_total = nr_projetado + nr_pipeline
+    # ── NR Potencial de Ativação (Base 2) ───────────────────────────────────
+    # Estimativa: se cliente ativar, Take Rate médio da carteira × Amount
+    tr_medio = carteira_ativa["Take Rate"].mean() if "Take Rate" in carteira_ativa.columns and len(carteira_ativa) > 0 else 0.05
+    nr_potencial_ativacao = (df_ativar["Amount"] * tr_medio).sum()
 
     return {
-        "nr_projetado": nr_projetado,
-        "nr_pipeline": nr_pipeline,
-        "nr_forecast_total": nr_forecast_total,
-        "sqls_quentes": sqls_quentes,
-        "ating_nr": ating_nr,
-        "ating_sql": ating_sql,
-        "ating_ponderado": ating_ponderado,
-        "df_carteira_ativa": carteira_ativa,
-        "df_resumo_por_mes": resumo_por_mes,
-        "df_saidas": saidas,
-        "df_pipeline_ativacao": df_ativar.sort_values("Probabilidade", ascending=False),
+        # KPIs principais
+        "nr_projetado":          nr_projetado,
+        "nr_potencial_ativacao": nr_potencial_ativacao,
+        "sqls_realizados":       sqls_realizados,
+        "meta_nr":               meta_nr,
+        "meta_sqls":             meta_sqls,
+        # Gaps
+        "gap_nr":                gap_nr,
+        "gap_sql":               gap_sql,
+        # Atingimento
+        "ating_nr":              ating_nr,
+        "ating_sql":             ating_sql,
+        "ating_ponderado":       ating_ponderado,
+        # DataFrames
+        "df_carteira_ativa":     carteira_ativa,
+        "df_carteira_saindo":    carteira_saindo,
+        "df_resumo_por_mes":     resumo_por_mes,
+        "take_rate_medio":       tr_medio,
     }
