@@ -1,33 +1,46 @@
 import pandas as pd
 
 
+# Colunas obrigatórias por base
 REQUIRED_COLS = {
-    "carteira": ["Account Name", "Net Revenue", "Months from Activation"],
-    "ativar": ["Account Name", "Amount", "GMV Faltante"],
-    "crm": ["Opportunity Name", "Account Name", "Stage", "Amount"],
+    "carteira": [
+        "Account Name",
+        "Net Revenue",
+        "Months from Activation",
+    ],
+    "ativar": [
+        "Account Name",
+        "Amount",
+        "GMV Faltante",
+    ],
+    "crm": [
+        "Account Name",
+        "Stage",
+        "Amount",
+    ],
 }
 
+# Colunas opcionais (enriquecimento)
 OPTIONAL_COLS = {
-    "carteira": ["GMV RV", "Take Rate"],
-    "ativar": [],
-    "crm": ["Close Date"],
+    "carteira": ["User ID", "Closer", "GMV Total", "GMV RV", "Take Rate", "Activation Date"],
+    "ativar":   ["User ID", "CW Date", "Onb Status", "Onb Nome"],
+    "crm":      ["Opportunity Name", "Close Date", "User ID"],
 }
-
-
-def _normalize_col(col: str) -> str:
-    return col.strip().lower().replace(" ", "_")
 
 
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove espaços extras dos nomes de colunas."""
     df = df.copy()
-    df.columns = [c.strip() for c in df.columns]
+    df.columns = [str(c).strip() for c in df.columns]
     return df
 
 
 def validate_columns(df: pd.DataFrame, sheet_key: str) -> None:
+    """Levanta ValueError se faltar coluna obrigatória."""
     required = REQUIRED_COLS[sheet_key]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(
-            f"Planilha '{sheet_key}' está faltando as colunas: {', '.join(missing)}"
+            f"Planilha '{sheet_key}' está faltando as colunas: {', '.join(missing)}. "
+            f"Colunas encontradas: {', '.join(df.columns.tolist())}"
         )
